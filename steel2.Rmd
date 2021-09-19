@@ -1,0 +1,993 @@
+---
+title: "steel2"
+author: "Muhammad Ammar"
+date: "7/16/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Menyiapkan library yang akan digunakan
+```{r, warning=FALSE, message=FALSE}
+# Data wrangling
+library(tidyverse)
+library(rsample)
+
+# Image manipulation
+library(imager)
+
+# Deep learning
+library(keras)
+library(tensorflow)
+
+# Model Evaluation
+library(caret)
+
+options(scipen = 999)
+rm(list = ls())
+```
+   
+## Membaca data train
+
+```{r}
+train <- read_csv("train.csv")
+train
+```
+
+```{r}
+RNGkind(sample.kind = "Rounding")
+set.seed(123)
+
+splitter <- initial_split(train, 0.8, strata = "ClassId")
+data_train <- training(splitter)
+data_test <- testing(splitter)
+```
+
+
+
+
+```{r}
+dim( data_train)
+```
+
+```{r}
+dim(data_test)
+```
+
+
+```{r}
+prop.table(table(data_train$ClassId)) %>% 
+  barplot
+```
+
+
+
+```{r}
+# train2 <- zip(files = train[c("ImageId","ClassId")], zip = split("_"))
+# train2
+```
+
+
+```{r}
+# pisahkan filename untuk masing-masing kelas
+library(dplyr)
+loc1 <- data_train %>% filter(ClassId == 1)
+loc2 <- data_train %>% filter(ClassId == 2)
+loc3 <- data_train %>% filter(ClassId == 3)
+loc4 <- data_train %>% filter(ClassId == 4)
+```
+
+
+```{r}
+# identify the current folders
+current.folder <- "D:/Algoritma Data Science Learning/DCD12/defect_detection/train_images/"
+# identify final folder (disini saya buat folder dengan nama "1" untuk gambar dari ClassId 1)
+new.folder_1 <- "D:/Algoritma Data Science Learning/DCD12/defect_detection/train_images/1"
+new.folder_2 <- "D:/Algoritma Data Science Learning/DCD12/defect_detection/train_images/2"
+new.folder_3 <- "D:/Algoritma Data Science Learning/DCD12/defect_detection/train_images/3"
+new.folder_4 <- "D:/Algoritma Data Science Learning/DCD12/defect_detection/train_images/4"
+```
+
+```{r}
+# list the files that you want
+list.of.files_1 <- paste0(current.folder, "/", loc1$ImageId)
+list.of.files_2 <- paste0(current.folder, "/", loc2$ImageId)
+list.of.files_3 <- paste0(current.folder, "/", loc3$ImageId)
+list.of.files_4 <- paste0(current.folder, "/", loc4$ImageId)
+```
+
+```{r}
+# copy the files to the new folder
+file.copy(list.of.files_1, new.folder_1, overwrite = T) # directory asal, directory destinasi
+file.copy(list.of.files_2, new.folder_2, overwrite = T) 
+file.copy(list.of.files_3, new.folder_3, overwrite = T) 
+file.copy(list.of.files_4, new.folder_4, overwrite = T)
+
+```
+
+
+# Prepare Folder Test
+
+```{r}
+# identify the current folders
+current.folder <- "D:/Algoritma Data Science Learning/DCD12/defect_detection/train_images/"
+# identify final folder (disini saya buat folder dengan nama "1" untuk gambar dari ClassId 1)
+new.folder_test <- "D:/Algoritma Data Science Learning/DCD12/defect_detection/test/"
+```
+
+```{r}
+# list the files that you want
+list.of.files_1 <- paste0(current.folder, "/", data_test$ImageId)
+```
+
+```{r}
+# copy the files to the new folder
+file.copy(list.of.files_1, new.folder_test, overwrite = T) # directory asal, directory destinasi
+
+```
+
+# Preprocessing
+
+```{r}
+train_list <- list.files("train/")
+head(train_list)
+```
+
+```{r}
+train_path <- paste0("train/", train_list)
+head(train_path)
+```
+
+```{r}
+# Get file name
+train_name <- map(train_path, 
+                 function(x) paste0(x, list.files(x))
+                 ) %>% 
+  unlist()
+
+# first 6 file name
+head(train_name)
+```
+
+```{r}
+tail(train_name)
+```
+
+
+```{r}
+length(train_name)
+```
+
+```{r}
+#Randomly select image
+#Desired height and width of images
+target_size <- c(256, 256)
+
+# Batch size for training the model
+batch_size <- 32
+```
+
+
+
+
+```{r}
+train_data_gen <- image_data_generator(rescale = 1/255, # Scaling pixel value
+                                       horizontal_flip = T, # Flip image horizontally
+                                       vertical_flip = T, # Flip image vertically 
+                                       rotation_range = 45, # Rotate image from 0 to 45 degrees
+                                       zoom_range = 0.25, # Zoom in or zoom out range
+                                       validation_split = 0.2 # 20% data as validation data
+                                       )
+```
+
+```{r}
+# Training Dataset
+train_image_array_gen <- flow_images_from_directory(directory = "train/", # Folder of the data
+                                                    target_size = target_size, # target of the image dimension (64 x 64)  
+                                                    color_mode = "rgb", # use RGB color
+                                                    batch_size = batch_size , 
+                                                    seed = 123,  # set random seed
+                                                    subset = "training", # declare that this is for training data
+                                                    generator = train_data_gen
+                                                    )
+
+# Validation Dataset
+val_image_array_gen <- flow_images_from_directory(directory = "train/",
+                                                  target_size = target_size, 
+                                                  color_mode = "rgb", 
+                                                  batch_size = batch_size ,
+                                                  seed = 123,
+                                                  subset = "validation", # declare that this is the validation data
+                                                  generator = train_data_gen
+                                                  )
+```
+
+```{r}
+# Number of training samples
+train_samples <- train_image_array_gen$n
+
+# Number of validation samples
+valid_samples <- val_image_array_gen$n
+
+# Number of target classes/categories
+output_n <- n_distinct(train_image_array_gen$classes)
+
+# Get the class proportion
+table("\nFrequency" = factor(train_image_array_gen$classes)
+      ) %>%
+  prop.table()
+```
+
+# Validation Data
+```{r}
+val_data <- data.frame(file_name = paste0("train/", val_image_array_gen$filenames)) %>% 
+  mutate(class = str_extract(file_name, "1 | 2 | 3 | 4"))
+
+head(val_data, 10)
+```
+
+
+```{r}
+# # Function to convert image to array
+# image_prep <- function(x) {
+#   arrays <- lapply(x, function(path) {
+#     img <- image_load(path, target_size = target_size, 
+#                       grayscale = F # Set FALSE if image is RGB
+#                       )
+#     
+#     x <- image_to_array(img)
+#     x <- array_reshape(x, c(1, dim(x)))
+#     x <- x/255 # rescale image pixel
+#   })
+#   do.call(abind::abind, c(arrays, list(along = 1)))
+# }
+```
+
+
+```{r}
+# test_x <- image_prep(val_data$file_name)
+# dim(test_x)
+```
+
+
+# Arsitektur Model
+
+```{r}
+# input shape of the image
+c(target_size, 4)
+```
+
+
+```{r}
+tensorflow::tf$random$set_seed(123)
+
+model<- keras_model_sequential() %>% 
+  
+  # First convolutional layer
+  layer_conv_2d(filters = 32,
+                kernel_size = c(5,5), # 5 x 5 filters
+                padding = "same",
+                activation = "relu",
+                input_shape = c(target_size, 3)
+                ) %>% 
+  
+  # Second convolutional layer
+  layer_conv_2d(filters = 32,
+                kernel_size = c(3,3), # 3 x 3 filters
+                padding = "same",
+                activation = "relu"
+                ) %>% 
+  
+  # Max pooling layer
+  layer_max_pooling_2d(pool_size = c(2,2)) %>% 
+  
+  # Third convolutional layer
+  layer_conv_2d(filters = 64,
+                kernel_size = c(3,3),
+                padding = "same",
+                activation = "relu"
+                ) %>% 
+
+  # Max pooling layer
+  layer_max_pooling_2d(pool_size = c(2,2)) %>% 
+  
+  # Fourth convolutional layer
+  layer_conv_2d(filters = 128,
+                kernel_size = c(3,3),
+                padding = "same",
+                activation = "relu"
+                ) %>% 
+  
+  # Max pooling layer
+  layer_max_pooling_2d(pool_size = c(2,2)) %>% 
+
+  # Fifth convolutional layer
+  layer_conv_2d(filters = 256,
+                kernel_size = c(3,3),
+                padding = "same",
+                activation = "relu"
+                ) %>% 
+  
+  # Max pooling layer
+  layer_max_pooling_2d(pool_size = c(2,2)) %>% 
+  
+  # Flattening layer
+  layer_flatten() %>% 
+  
+  # Dense layer
+  layer_dense(units = 64,
+              activation = "relu") %>% 
+  
+  # Output layer
+  layer_dense(name = "Output",
+              units = 4, 
+              activation = "softmax")
+
+model
+```
+
+```{r}
+model %>% 
+  compile(
+    loss = "categorical_crossentropy",
+    optimizer = optimizer_adam(lr = 0.001),
+    metrics = "accuracy"
+  )
+
+history <- model %>% 
+  fit_generator(
+  # training data
+  train_image_array_gen,
+  
+  # epochs
+  steps_per_epoch = as.integer(train_samples / batch_size), 
+  epochs = 50, 
+  
+  # validation data
+  validation_data = val_image_array_gen,
+  validation_steps = as.integer(valid_samples / batch_size),
+  
+  # print progress but don't create graphic
+  verbose = 1,
+  view_metrics = 0
+)
+
+plot(history)
+```
+
+
+
+<!-- # Tuning Model -->
+
+<!-- ## 1 -->
+
+<!-- ```{r} -->
+<!-- #Randomly select image -->
+<!-- #Desired height and width of images -->
+<!-- target_size2 <- c(64, 64) -->
+
+<!-- # Batch size for training the model -->
+<!-- batch_size2 <- 32 -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- # Training Dataset -->
+<!-- train_image_array_gen2 <- flow_images_from_directory(directory = "train/", # Folder of the data -->
+<!--                                                     target_size = target_size2, # target of the image dimension (64 x 64)   -->
+<!--                                                     color_mode = "rgb", # use RGB color -->
+<!--                                                     batch_size = batch_size2 ,  -->
+<!--                                                     seed = 123,  # set random seed -->
+<!--                                                     subset = "training", # declare that this is for training data -->
+<!--                                                     generator = train_data_gen -->
+<!--                                                     ) -->
+
+<!-- # Validation Dataset -->
+<!-- val_image_array_gen2 <- flow_images_from_directory(directory = "train/", -->
+<!--                                                   target_size = target_size2,  -->
+<!--                                                   color_mode = "rgb",  -->
+<!--                                                   batch_size = batch_size2 , -->
+<!--                                                   seed = 123, -->
+<!--                                                   subset = "validation", # declare that this is the validation data -->
+<!--                                                   generator = train_data_gen -->
+<!--                                                   ) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- # input shape of the image -->
+<!-- c(target_size2, 4) -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- tensorflow::tf$random$set_seed(123) -->
+
+<!-- model2<- keras_model_sequential() %>%  -->
+
+<!--   # First convolutional layer -->
+<!--   layer_conv_2d(filters = 64, -->
+<!--                 kernel_size = c(5,5), # 5 x 5 filters -->
+<!--                 padding = "same", -->
+<!--                 activation = "relu", -->
+<!--                 input_shape = c(target_size2, 3) -->
+<!--                 ) %>%  -->
+
+<!--   # Second convolutional layer -->
+<!--   layer_conv_2d(filters = 128, -->
+<!--                 kernel_size = c(3,3), # 3 x 3 filters -->
+<!--                 padding = "same", -->
+<!--                 activation = "relu" -->
+<!--                 ) %>%  -->
+
+<!--   # Max pooling layer -->
+<!--   layer_max_pooling_2d(pool_size = c(2,2)) %>%  -->
+
+<!--   # Third convolutional layer -->
+<!--   layer_conv_2d(filters = 256, -->
+<!--                 kernel_size = c(3,3), -->
+<!--                 padding = "same", -->
+<!--                 activation = "relu" -->
+<!--                 ) %>%  -->
+
+<!--   # Max pooling layer -->
+<!--   layer_max_pooling_2d(pool_size = c(2,2)) %>% -->
+
+<!--   # Flattening layer -->
+<!--   layer_flatten() %>%  -->
+
+<!--   # Dense layer -->
+<!--   layer_dense(units = 64, -->
+<!--               activation = "relu") %>%  -->
+
+<!--   # Output layer -->
+<!--   layer_dense(name = "Output", -->
+<!--               units = 4,  -->
+<!--               activation = "softmax") -->
+
+<!-- model2 -->
+<!-- ``` -->
+
+
+
+<!-- ```{r} -->
+<!-- model2 %>%  -->
+<!--   compile( -->
+<!--     loss = "categorical_crossentropy", -->
+<!--     optimizer = optimizer_adam(lr = 0.0001), -->
+<!--     metrics = "accuracy" -->
+<!--   ) -->
+
+<!-- history2 <- model2 %>%  -->
+<!--   fit_generator( -->
+<!--   # training data -->
+<!--   train_image_array_gen2, -->
+
+<!--   # epochs -->
+<!--   steps_per_epoch = as.integer(train_samples / batch_size2),  -->
+<!--   epochs = 50,  -->
+
+<!--   # validation data -->
+<!--   validation_data = val_image_array_gen2, -->
+<!--   validation_steps = as.integer(valid_samples / batch_size2), -->
+
+<!--   # print progress but don't create graphic -->
+<!--   verbose = 1, -->
+<!--   view_metrics = 0 -->
+<!-- ) -->
+
+<!-- plot(history2) -->
+<!-- ``` -->
+
+
+
+
+<!-- ## 2 -->
+
+<!-- ```{r} -->
+<!-- #Randomly select image -->
+<!-- #Desired height and width of images -->
+<!-- target_size3 <- c(128, 128) -->
+
+<!-- # Batch size for training the model -->
+<!-- batch_size3 <- 32 -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- # Training Dataset -->
+<!-- train_image_array_gen3 <- flow_images_from_directory(directory = "train/", # Folder of the data -->
+<!--                                                     target_size = target_size3, # target of the image dimension (64 x 64)   -->
+<!--                                                     color_mode = "rgb", # use RGB color -->
+<!--                                                     batch_size = batch_size3 ,  -->
+<!--                                                     seed = 123,  # set random seed -->
+<!--                                                     subset = "training", # declare that this is for training data -->
+<!--                                                     generator = train_data_gen -->
+<!--                                                     ) -->
+
+<!-- # Validation Dataset -->
+<!-- val_image_array_gen3 <- flow_images_from_directory(directory = "train/", -->
+<!--                                                   target_size = target_size3,  -->
+<!--                                                   color_mode = "rgb",  -->
+<!--                                                   batch_size = batch_size3, -->
+<!--                                                   seed = 123, -->
+<!--                                                   subset = "validation", # declare that this is the validation data -->
+<!--                                                   generator = train_data_gen -->
+<!--                                                   ) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- # input shape of the image -->
+<!-- c(target_size3, 3) -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- tensorflow::tf$random$set_seed(123) -->
+
+<!-- model3<- keras_model_sequential() %>%  -->
+
+<!--   # First convolutional layer -->
+<!--   layer_conv_2d(filters = 128, -->
+<!--                 kernel_size = c(5,5), # 5 x 5 filters -->
+<!--                 padding = "same", -->
+<!--                 activation = "relu", -->
+<!--                 input_shape = c(target_size2, 3) -->
+<!--                 ) %>%  -->
+
+<!--   # Second convolutional layer -->
+<!--   layer_conv_2d(filters = 64, -->
+<!--                 kernel_size = c(3,3), # 3 x 3 filters -->
+<!--                 padding = "same", -->
+<!--                 activation = "relu" -->
+<!--                 ) %>%  -->
+
+<!--   # Max pooling layer -->
+<!--   layer_max_pooling_2d(pool_size = c(2,2)) %>% -->
+
+<!--   # Flattening layer -->
+<!--   layer_flatten() %>%  -->
+
+<!--   # Dense layer -->
+<!--   layer_dense(units = 64, -->
+<!--               activation = "relu") %>%  -->
+
+<!--   # Output layer -->
+<!--   layer_dense(name = "Output", -->
+<!--               units = 4,  -->
+<!--               activation = "softmax") -->
+
+<!-- model3 -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- model3 %>%  -->
+<!--   compile( -->
+<!--     loss = "categorical_crossentropy", -->
+<!--     optimizer = optimizer_adam(lr = 0.001), -->
+<!--     metrics = "accuracy" -->
+<!--   ) -->
+
+<!-- history3 <- model3 %>%  -->
+<!--   fit_generator( -->
+<!--   # training data -->
+<!--   train_image_array_gen3, -->
+
+<!--   # epochs -->
+<!--   steps_per_epoch = as.integer(train_samples / batch_size3),  -->
+<!--   epochs = 30,  -->
+
+<!--   # validation data -->
+<!--   validation_data = val_image_array_gen3, -->
+<!--   validation_steps = as.integer(valid_samples / batch_size3), -->
+
+<!--   # print progress but don't create graphic -->
+<!--   verbose = 1, -->
+<!--   view_metrics = 0 -->
+<!-- ) -->
+
+<!-- plot(history3) -->
+<!-- ``` -->
+
+
+<!-- ## 4 -->
+
+<!-- ```{r} -->
+<!-- #Randomly select image -->
+<!-- #Desired height and width of images -->
+<!-- target_size4 <- c(64, 64) -->
+
+<!-- # Batch size for training the model -->
+<!-- batch_size4 <- 32 -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- # Training Dataset -->
+<!-- train_image_array_gen4 <- flow_images_from_directory(directory = "train/", # Folder of the data -->
+<!--                                                     target_size = target_size4, # target of the image dimension (64 x 64)   -->
+<!--                                                     color_mode = "rgb", # use RGB color -->
+<!--                                                     batch_size = batch_size4,  -->
+<!--                                                     seed = 123,  # set random seed -->
+<!--                                                     subset = "training", # declare that this is for training data -->
+<!--                                                     generator = train_data_gen -->
+<!--                                                     ) -->
+
+<!-- # Validation Dataset -->
+<!-- val_image_array_gen4 <- flow_images_from_directory(directory = "train/", -->
+<!--                                                   target_size = target_size4,  -->
+<!--                                                   color_mode = "rgb",  -->
+<!--                                                   batch_size = batch_size4, -->
+<!--                                                   seed = 123, -->
+<!--                                                   subset = "validation", # declare that this is the validation data -->
+<!--                                                   generator = train_data_gen -->
+<!--                                                   ) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- # input shape of the image -->
+<!-- c(target_size4, 3) -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- tensorflow::tf$random$set_seed(123) -->
+
+<!-- model4<- keras_model_sequential() %>%  -->
+
+<!--   # First convolutional layer -->
+<!--   layer_conv_2d(filters = 32, -->
+<!--                 kernel_size = c(5,5), # 5 x 5 filters -->
+<!--                 padding = "same", -->
+<!--                 activation = "relu", -->
+<!--                 input_shape = c(target_size4, 3) -->
+<!--                 ) %>%  -->
+
+<!--   # Second convolutional layer -->
+<!--   layer_conv_2d(filters = 32, -->
+<!--                 kernel_size = c(3,3), # 3 x 3 filters -->
+<!--                 padding = "same", -->
+<!--                 activation = "relu" -->
+<!--                 ) %>%  -->
+
+<!--   # Max pooling layer -->
+<!--   layer_max_pooling_2d(pool_size = c(2,2)) %>%  -->
+
+<!--   # Third convolutional layer -->
+<!--   layer_conv_2d(filters = 64, -->
+<!--                 kernel_size = c(3,3), -->
+<!--                 padding = "same", -->
+<!--                 activation = "relu" -->
+<!--                 ) %>%  -->
+
+<!--   # Max pooling layer -->
+<!--   layer_max_pooling_2d(pool_size = c(2,2)) %>%  -->
+
+<!--   # Fourth convolutional layer -->
+<!--   layer_conv_2d(filters = 128, -->
+<!--                 kernel_size = c(3,3), -->
+<!--                 padding = "same", -->
+<!--                 activation = "relu" -->
+<!--                 ) %>%  -->
+
+<!--   # Max pooling layer -->
+<!--   layer_max_pooling_2d(pool_size = c(2,2)) %>%  -->
+
+<!--   # Fifth convolutional layer -->
+<!--   layer_conv_2d(filters = 256, -->
+<!--                 kernel_size = c(3,3), -->
+<!--                 padding = "same", -->
+<!--                 activation = "relu" -->
+<!--                 ) %>%  -->
+
+<!--   # Max pooling layer -->
+<!--   layer_max_pooling_2d(pool_size = c(2,2)) %>%  -->
+
+<!--   #sixth convolutional layer -->
+<!--   layer_conv_2d(filters = 256, -->
+<!--                 kernel_size = c(3,3), -->
+<!--                 padding = "same", -->
+<!--                 activation = "relu" -->
+<!--                 ) %>%  -->
+
+<!--   # Max pooling layer -->
+<!--   layer_max_pooling_2d(pool_size = c(2,2)) %>%  -->
+
+<!--   # Flattening layer -->
+<!--   layer_flatten() %>%  -->
+
+<!--   # Dense layer -->
+<!--   layer_dense(units = 64, -->
+<!--               activation = "relu") %>%  -->
+
+<!--   # Output layer -->
+<!--   layer_dense(name = "Output", -->
+<!--               units = 4,  -->
+<!--               activation = "sigmoid") -->
+
+<!-- model4 -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- model4 %>%  -->
+<!--   compile( -->
+<!--     loss = "categorical_crossentropy", -->
+<!--     optimizer = optimizer_adam(lr = 0.001), -->
+<!--     metrics = "accuracy" -->
+<!--   ) -->
+
+<!-- history4 <- model4 %>%  -->
+<!--   fit_generator( -->
+<!--   # training data -->
+<!--   train_image_array_gen4, -->
+
+<!--   # epochs -->
+<!--   steps_per_epoch = as.integer(train_samples / batch_size4),  -->
+<!--   epochs = 50,  -->
+
+<!--   # validation data -->
+<!--   validation_data = val_image_array_gen4, -->
+<!--   validation_steps = as.integer(valid_samples / batch_size4), -->
+
+<!--   # print progress but don't create graphic -->
+<!--   verbose = 1, -->
+<!--   view_metrics = 0 -->
+<!-- ) -->
+
+<!-- plot(history4) -->
+<!-- ``` -->
+
+
+
+<!-- ## 5 -->
+
+<!-- ```{r} -->
+<!-- #Randomly select image -->
+<!-- #Desired height and width of images -->
+<!-- target_size5 <- c(256, 256) -->
+
+<!-- # Batch size for training the model -->
+<!-- batch_size5 <- 128 -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- # Training Dataset -->
+<!-- train_image_array_gen5 <- flow_images_from_directory(directory = "train/", # Folder of the data -->
+<!--                                                     target_size = target_size5, # target of the image dimension (64 x 64)   -->
+<!--                                                     color_mode = "rgb", # use RGB color -->
+<!--                                                     batch_size = batch_size5,  -->
+<!--                                                     seed = 123,  # set random seed -->
+<!--                                                     subset = "training", # declare that this is for training data -->
+<!--                                                     generator = train_data_gen -->
+<!--                                                     ) -->
+
+<!-- # Validation Dataset -->
+<!-- val_image_array_gen5 <- flow_images_from_directory(directory = "train/", -->
+<!--                                                   target_size = target_size5,  -->
+<!--                                                   color_mode = "rgb",  -->
+<!--                                                   batch_size = batch_size5, -->
+<!--                                                   seed = 123, -->
+<!--                                                   subset = "validation", # declare that this is the validation data -->
+<!--                                                   generator = train_data_gen -->
+<!--                                                   ) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- # input shape of the image -->
+<!-- c(target_size5, 3) -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- tensorflow::tf$random$set_seed(123) -->
+
+<!-- model5<- keras_model_sequential() %>%  -->
+
+<!--   # First convolutional layer -->
+<!--   layer_conv_2d(filters = 32, -->
+<!--                 kernel_size = c(5,5), # 5 x 5 filters -->
+<!--                 padding = "same", -->
+<!--                 activation = "relu", -->
+<!--                 input_shape = c(target_size5, 3) -->
+<!--                 ) %>%  -->
+
+<!--   # Second convolutional layer -->
+<!--   layer_conv_2d(filters = 32, -->
+<!--                 kernel_size = c(3,3), # 3 x 3 filters -->
+<!--                 padding = "same", -->
+<!--                 activation = "relu" -->
+<!--                 ) %>%  -->
+
+<!--   # Max pooling layer -->
+<!--   layer_max_pooling_2d(pool_size = c(2,2)) %>%  -->
+
+<!--   # Third convolutional layer -->
+<!--   layer_conv_2d(filters = 64, -->
+<!--                 kernel_size = c(3,3), -->
+<!--                 padding = "same", -->
+<!--                 activation = "relu" -->
+<!--                 ) %>%  -->
+
+<!--   # Max pooling layer -->
+<!--   layer_max_pooling_2d(pool_size = c(2,2)) %>%  -->
+
+<!--   # Fourth convolutional layer -->
+<!--   layer_conv_2d(filters = 128, -->
+<!--                 kernel_size = c(3,3), -->
+<!--                 padding = "same", -->
+<!--                 activation = "relu" -->
+<!--                 ) %>%  -->
+
+<!--   # Max pooling layer -->
+<!--   layer_max_pooling_2d(pool_size = c(2,2)) %>%  -->
+
+<!--   # Fifth convolutional layer -->
+<!--   layer_conv_2d(filters = 256, -->
+<!--                 kernel_size = c(3,3), -->
+<!--                 padding = "same", -->
+<!--                 activation = "relu" -->
+<!--                 ) %>%  -->
+
+<!--   # Max pooling layer -->
+<!--   layer_max_pooling_2d(pool_size = c(2,2)) %>%  -->
+
+
+<!--   # Flattening layer -->
+<!--   layer_flatten() %>%  -->
+
+<!--   # Dense layer -->
+<!--   layer_dense(units = 64, -->
+<!--               activation = "relu") %>%  -->
+
+<!--   # Output layer -->
+<!--   layer_dense(name = "Output", -->
+<!--               units = 4,  -->
+<!--               activation = "sigmoid") -->
+
+<!-- model5 -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- model5 %>%  -->
+<!--   compile( -->
+<!--     loss = "categorical_crossentropy", -->
+<!--     optimizer = optimizer_adam(lr = 0.0001), -->
+<!--     metrics = "accuracy" -->
+<!--   ) -->
+
+<!-- history4 <- model5 %>%  -->
+<!--   fit_generator( -->
+<!--   # training data -->
+<!--   train_image_array_gen5, -->
+
+<!--   # epochs -->
+<!--   steps_per_epoch = as.integer(train_samples / batch_size5),  -->
+<!--   epochs = 50,  -->
+
+<!--   # validation data -->
+<!--   validation_data = val_image_array_gen5, -->
+<!--   validation_steps = as.integer(valid_samples / batch_size5), -->
+
+<!--   # print progress but don't create graphic -->
+<!--   verbose = 1, -->
+<!--   view_metrics = 0 -->
+<!-- ) -->
+
+<!-- plot(history5) -->
+
+<!-- ``` -->
+
+
+# Testing & Evaluation
+
+```{r}
+# setwd("D:/Algoritma Data Science Learning/DCD12/defect_detection/")
+# test_list <- list("test/")
+# test_path <-  paste0("test/", test_list)
+# 
+# test_data_gen <- image_data_generator(rescale = 1/255)
+
+# test_images <- flow_images_from_directory(directory = "test/",
+#                                           generator = test_data_gen,
+#                                           target_size = target_size,
+#                                           class_mode = "categorical",
+#                                           classes = train_list,
+#                                           color_mode = "rgb",
+#                                           shuffle = F,
+#                                           seed = 123)
+
+# test_image_array_gen <- flow_images_from_directory(directory = test_path, # Folder of the data
+#                                                     target_size = target_size, # target of the image dimension (64 x 64)
+#                                                     color_mode = "rgb", # use RGB color
+#                                                     batch_size = batch_size,
+#                                                     classes = train_list,
+#                                                     class_mode = "categorical",
+#                                                     seed = 123,  # set random seed
+#                                                     generator = test_data_gen
+#                                                     )
+# test_samples <- test_image_array_gen$n
+# 
+# model %>% evaluate_generator(test_image_array_gen, 
+#                      steps = 32)
+```
+
+```{r}
+# # Get file name directory
+# test_filename <- map(test_path, 
+#                  function(x) paste0(x, list.files(x))
+#                  ) %>% 
+#   unlist()
+# 
+# # first 6 file name
+# head(test_filename)
+
+test_file_name <-  "D:/Algoritma Data Science Learning/DCD12/defect_detection/test/0ef465b25.jpg"
+# you have to set test file name 1 by 1, still confused how to manage all the data in my directory and predict it with my model
+
+# Function to convert image to array
+image_prep <- function(x) {
+  arrays <- lapply(x, function(path) {
+    img <- image_load(path, target_size = target_size, 
+                      grayscale = F # Set FALSE if image is RGB
+                      )
+    
+    x <- image_to_array(img)
+    x <- array_reshape(x, c(1, dim(x)))
+    x <- x/255 # rescale image pixel
+  })
+  do.call(abind::abind, c(arrays, list(along = 1)))
+}
+
+# Convert image to array
+test_x <- image_prep(test_file_name)
+
+# Predict
+pred_test <- predict_classes(model, test_x)
+
+# Convert encoding to label (sesuaikan dengan kasus)
+decode <- function(x){
+  case_when(x == 0 ~ "1",
+            x == 1 ~ "2",
+            x == 2 ~ "3",
+            x == 3 ~ "4"
+            )
+}
+```
+
+```{r}
+pred_test <- predict_classes(model, test_x)
+pred_test
+```
+
+```{r}
+setwd("D:/Algoritma Data Science Learning/DCD12/defect_detection/")
+model %>% save_model_tf("defect_detection")
+```
+
+```{r}
+model %>% 
+  save_model_hdf5("model_keras.hdf5")
+```
+
+
+
+```{r}
+# confusionMatrix(as.factor(pred_test),
+#                 as.factor(val_data$class)
+#                 )
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
